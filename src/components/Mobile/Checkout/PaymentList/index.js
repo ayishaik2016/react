@@ -7,6 +7,7 @@ import PaystackButton from "react-paystack";
 
 import { RAZORPAY_CREATE_ORDER_URL } from "../../../../configs";
 import { RAZORPAY_PROCESS_VERIFY_URL } from "../../../../configs";
+import { TELR_PAYMENT_URL } from "../../../../configs";
 
 import { PAYMONGO_PAYMENT_URL } from "../../../../configs";
 import { MERCADOPAGO_PAYMENT_URL } from "../../../../configs";
@@ -63,6 +64,7 @@ class PaymentList extends Component {
 		showPaymongoForm: false,
 		paymongoRedirect: "",
 		paymongo_processing: false,
+		telr_processing: false,
 
 		cashChange: "",
 		regexp: /^[0-9\b]+$/,
@@ -136,6 +138,13 @@ class PaymentList extends Component {
 				return null;
 			}
 
+			if (nextProps.checkout.data.payment_mode === "TELR") {
+				// window.location = TELR_PAYMENT_URL + "/" + nextProps.checkout.data.id;
+				let transaction_id = localStorage.getItem('transaction_id');
+				this.__placeOrder(transaction_id,"TELR");
+				return null;
+			}
+
 			//for stripe ideal, fpx and 3d
 			if (nextProps.checkout.data.orderstatus_id !== 8) {
 				//if orderstatus_id is not Awaiting payment then
@@ -199,14 +208,15 @@ class PaymentList extends Component {
 			if (localStorage.getItem("enGDMA") === "true") {
 				if (localStorage.getItem("userSelected") === "DELIVERY") {
 					this.props.handleProcessDistanceCalcLoading(true);
-
-					calculateDistanceGoogle(
-						restaurant_info.longitude,
-						restaurant_info.latitude,
-						user.data.default_address.longitude,
-						user.data.default_address.latitude,
-						this.props.google,
-						function(distance) {
+				}
+				calculateDistanceGoogle(
+					restaurant_info.longitude,
+					restaurant_info.latitude,
+					user.data.default_address.longitude,
+					user.data.default_address.latitude,
+					this.props.google,
+					function(distance) {
+						if (localStorage.getItem("userSelected") === "DELIVERY") {
 							if (self.props.restaurant_info.delivery_charge_type === "DYNAMIC") {
 								self.setState({ distance: distance }, () => {
 									//check if restaurant has dynamic delivery charge..
@@ -215,16 +225,16 @@ class PaymentList extends Component {
 							}
 							self.props.handleProcessDistanceCalcLoading(false);
 						}
-					);
-				}
+					}
+				);
 			} else {
+				const distance = calculateDistance(
+					restaurant_info.longitude,
+					restaurant_info.latitude,
+					user.data.default_address.longitude,
+					user.data.default_address.latitude
+				);
 				if (localStorage.getItem("userSelected") === "DELIVERY") {
-					const distance = calculateDistance(
-						restaurant_info.longitude,
-						restaurant_info.latitude,
-						user.data.default_address.longitude,
-						user.data.default_address.latitude
-					);
 					if (this.props.restaurant_info.delivery_charge_type === "DYNAMIC") {
 						this.setState({ distance: distance }, () => {
 							//check if restaurant has dynamic delivery charge..
@@ -390,6 +400,7 @@ class PaymentList extends Component {
 								}
 								this.resetPage();
 							}
+							localStorage.removeItem('transaction_id');
 						}
 					});
 			} else {
@@ -427,6 +438,7 @@ class PaymentList extends Component {
 								}
 								this.resetPage();
 							}
+							localStorage.removeItem('transaction_id');
 						}
 					});
 			}
@@ -710,6 +722,44 @@ class PaymentList extends Component {
 
 	/* END Paymongo */
 
+	/* Telr Payment */
+	__handleTelr = (event) => {
+		this.props.handleLoading(true);
+		this.setState({ telr_processing: true });
+		const totalAmount = formatPrice(parseFloat(this.getTotalAfterCalculation()));
+		const { user, cartProducts, coupon, cartTotal } = this.props;
+		let tipAmount = null;
+		if (JSON.parse(localStorage.getItem("cart_tips")) != null) {
+			tipAmount = JSON.parse(localStorage.getItem("cart_tips")).value;
+		}
+		let cart_state = {
+			"user": user,
+			"cartProducts": cartProducts,
+			"coupon": coupon,
+			"cartTotal" : cartTotal,
+			"walletChecked": this.state.walletChecked,
+			"distance":parseFloat(this.state.distance),
+			"pendingPayment": false,
+			"tipAmount":tipAmount,
+			"cashChange":this.state.cashChange
+		};
+		localStorage.setItem("cart_state",JSON.stringify(cart_state));
+		Axios.post(TELR_PAYMENT_URL,{
+			amount:totalAmount,
+		})
+		.then((res) => {
+			console.log(res);
+			let redirectUrl = res.data.url;
+			localStorage.setItem('transaction_id',res.data.idx);
+			window.location.replace(redirectUrl);
+		})
+		.catch(function(error) {
+			console.log(error);
+		});
+		
+	}
+	/* END Telr Payment */
+
 	handlePayWithStripeCardToggle = (event) => {
 		this.setState({ payWithStripeCard: !this.state.payWithStripeCard }, () => {
 			if (this.state.payWithStripeCard) {
@@ -820,7 +870,7 @@ class PaymentList extends Component {
 					</React.Fragment>
 				)}
 
-				<div className="col-12 mb-50">
+				<div className="col-12">
 					{this.state.payment_gateway_loading ? (
 						<div className="row">
 							<div className="col-12">
@@ -1302,6 +1352,29 @@ class PaymentList extends Component {
 												</div>
 											</React.Fragment>
 										)}
+										<div
+											className="col-12 paymentGatewayBlock"
+											// onClick={() => this.__handleRazorPay()}
+											onClick={() => this.__handleTelr()}
+										>
+											<div className="block block-link-shadow text-left shadow-light">
+												<div className="block-content block-content-full clearfix py-3 payment-select-block">
+													<div className="float-right mt-10">
+														<img
+															src="/assets/img/various/telr.png"
+															alt="Telr"
+															className="img-fluid"
+														/>
+													</div>
+													<div className="font-size-h3 font-w600">
+														TELR
+													</div>
+													<div className="font-size-sm font-w600 text-muted">
+														{localStorage.getItem("checkoutRazorpaySubText")}
+													</div>
+												</div>
+											</div>
+										</div>
 										{gateway.name === "Razorpay" && (
 											<div
 												className="col-12 paymentGatewayBlock"
